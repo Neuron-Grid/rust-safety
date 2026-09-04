@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "rust-safety",
+  "description": "Rust development safety skill for secure coding, unsafe code, FFI, concurrency, panic handling, secret handling, and platform-specific Rust development.",
+  "owner": {
+    "name": "Neuron-Grid",
+    "url": "https://github.com/Neuron-Grid"
+  },
+  "plugins": [
+    {
+      "name": "rust-safety",
+      "source": "./"
+    }
+  ]
+}

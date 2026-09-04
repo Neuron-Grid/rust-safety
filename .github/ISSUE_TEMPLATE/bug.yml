@@ -15,7 +15,7 @@ body:
     id: location
     attributes:
       label: Affected files or rules
-      description: Include SKILL.md/reference paths and headings when known.
+      description: Include skills/rust-safety/SKILL.md or skills/rust-safety/references/ paths and headings when known.
     validations:
       required: true
   - type: textarea

@@ -6,7 +6,7 @@ Describe the rule, reference, documentation, or validation change.
 
 ## Scope
 
-- [ ] Core rule in `SKILL.md`
+- [ ] Core rule in `skills/rust-safety/SKILL.md`
 - [ ] Domain-specific reference
 - [ ] Documentation/repository metadata
 - [ ] Validation/CI

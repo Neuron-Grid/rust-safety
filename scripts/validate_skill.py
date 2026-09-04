@@ -2,18 +2,79 @@
 """Repository-local preflight validation for the rust-safety Agent Skill.
 
 This intentionally validates the Agent Skills frontmatter subset used by this
-repository without requiring PyYAML. It is not a general-purpose YAML parser.
+repository and the official plugin-manifest subset selected by this repository.
+It is not a general-purpose YAML, JSON Schema, or marketplace validator.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import unquote
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
+SKILL_PATH = Path("skills/rust-safety")
+CODEX_PLUGIN_PATH = Path(".codex-plugin/plugin.json")
+CLAUDE_PLUGIN_PATH = Path(".claude-plugin/plugin.json")
+CODEX_MARKETPLACE_PATH = Path(".agents/plugins/marketplace.json")
+CLAUDE_MARKETPLACE_PATH = Path(".claude-plugin/marketplace.json")
+PLUGIN_NAME = "rust-safety"
+PLUGIN_DESCRIPTION = (
+    "Rust development safety skill for secure coding, unsafe code, FFI, "
+    "concurrency, panic handling, secret handling, and platform-specific Rust development."
+)
+PLUGIN_AUTHOR = {"name": "Neuron-Grid", "url": "https://github.com/Neuron-Grid"}
+PLUGIN_REPOSITORY = "https://github.com/Neuron-Grid/rust-safety"
+PLUGIN_KEYWORDS = ["rust", "safety", "security", "ffi", "concurrency"]
+PLUGIN_COMMON_VALUES: dict[str, object] = {
+    "name": PLUGIN_NAME,
+    "description": PLUGIN_DESCRIPTION,
+    "author": PLUGIN_AUTHOR,
+    "homepage": PLUGIN_REPOSITORY,
+    "repository": PLUGIN_REPOSITORY,
+    "license": "MIT",
+    "keywords": PLUGIN_KEYWORDS,
+}
+CODEX_INTERFACE = {
+    "displayName": "Rust Safety",
+    "shortDescription": "Secure and correct Rust development guidance.",
+    "longDescription": PLUGIN_DESCRIPTION,
+    "developerName": "Neuron-Grid",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": PLUGIN_REPOSITORY,
+    "defaultPrompt": ["Review this Rust code for safety, security, and correctness."],
+}
+CLAUDE_PLUGIN_SCHEMA = "https://json.schemastore.org/claude-code-plugin-manifest.json"
+CLAUDE_MARKETPLACE_SCHEMA = "https://json.schemastore.org/claude-code-marketplace.json"
+SEMVER_RE = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-(?:(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
+FORBIDDEN_MANIFEST_FIELDS = {
+    "agent",
+    "agents",
+    "app",
+    "apps",
+    "bin",
+    "command",
+    "commands",
+    "dependencies",
+    "dependency",
+    "hooks",
+    "install",
+    "mcp",
+    "mcpServers",
+    "mcp_servers",
+    "postinstall",
+    "scripts",
+}
 ALLOWED_FRONTMATTER_FIELDS = {
     "name",
     "description",
@@ -235,16 +296,18 @@ def validate_frontmatter(root: Path, text: str, errors: list[str]) -> dict[str, 
         if not isinstance(allowed_tools, str) or not allowed_tools:
             _add(errors, "SKILL.md: 'allowed-tools' must be a non-empty space-separated string when provided")
 
-    if "metadata" in fields:
-        metadata = fields["metadata"]
-        if not isinstance(metadata, dict):
-            _add(errors, "SKILL.md: 'metadata' must be a mapping from string keys to string values")
-        else:
-            for key, value in metadata.items():
-                if not isinstance(key, str) or not key:
-                    _add(errors, "SKILL.md: metadata keys must be non-empty strings")
-                if not isinstance(value, str):
-                    _add(errors, f"SKILL.md: metadata value for '{key}' must be a string")
+    metadata = fields.get("metadata")
+    if not isinstance(metadata, dict):
+        _add(errors, "SKILL.md: required 'metadata' must be a mapping from string keys to string values")
+    else:
+        for key, value in metadata.items():
+            if not isinstance(key, str) or not key:
+                _add(errors, "SKILL.md: metadata keys must be non-empty strings")
+            if not isinstance(value, str):
+                _add(errors, f"SKILL.md: metadata value for '{key}' must be a string")
+        version = metadata.get("version")
+        if not isinstance(version, str) or not SEMVER_RE.fullmatch(version):
+            _add(errors, "SKILL.md: metadata.version must be a SemVer 2.0.0 string")
 
     return fields
 
@@ -303,7 +366,249 @@ def validate_all_reference_paths(root: Path, skill_text: str, errors: list[str])
             validate_reference_paths(root, source, text, errors)
 
 
+def _read_json_object(root: Path, relative: Path, errors: list[str]) -> dict[str, object] | None:
+    path = root / relative
+    if not path.is_file():
+        _add(errors, f"{relative}: required plugin metadata file is missing")
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        _add(errors, f"{relative}: invalid JSON: {exc}")
+        return None
+    if not isinstance(value, dict):
+        _add(errors, f"{relative}: root must be an object")
+        return None
+    return value
+
+
+def _validate_static_manifest(value: object, label: str, errors: list[str]) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in FORBIDDEN_MANIFEST_FIELDS:
+                _add(errors, f"{label}: forbidden executable field '{key}'")
+            _validate_static_manifest(child, label, errors)
+    elif isinstance(value, list):
+        for child in value:
+            _validate_static_manifest(child, label, errors)
+
+
+def _validate_fields(
+    value: dict[str, object], allowed: set[str], label: str, errors: list[str]
+) -> None:
+    for key in sorted(set(value) - allowed):
+        if key not in FORBIDDEN_MANIFEST_FIELDS:
+            _add(errors, f"{label}: unsupported field '{key}'")
+
+
+def _validate_required_values(
+    value: dict[str, object], expected: Mapping[str, object], label: str, errors: list[str]
+) -> None:
+    for key, expected_value in expected.items():
+        if key not in value:
+            _add(errors, f"{label}: required field '{key}' is missing")
+        elif value[key] != expected_value:
+            _add(errors, f"{label}: field '{key}' must equal {expected_value!r}")
+
+
+def _validate_manifest_version(
+    value: dict[str, object], canonical_version: str | None, label: str, errors: list[str]
+) -> None:
+    version = value.get("version")
+    if not isinstance(version, str) or not SEMVER_RE.fullmatch(version):
+        _add(errors, f"{label}: 'version' must be a SemVer 2.0.0 string")
+    elif canonical_version is not None and version != canonical_version:
+        _add(errors, f"{label}: version '{version}' must match SKILL.md metadata.version '{canonical_version}'")
+
+
+def _validate_local_directory(
+    root: Path,
+    raw_path: object,
+    label: str,
+    required_files: tuple[Path, ...],
+    errors: list[str],
+) -> None:
+    if not isinstance(raw_path, str) or not raw_path.startswith("./"):
+        _add(errors, f"{label}: path must be a './'-relative string")
+        return
+    candidate = (root / raw_path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        _add(errors, f"{label}: path escapes repository root: {raw_path}")
+        return
+    if not candidate.is_dir():
+        _add(errors, f"{label}: directory does not exist: {raw_path}")
+        return
+    for required in required_files:
+        if not (candidate / required).is_file():
+            _add(errors, f"{label}: source is missing required file: {required}")
+
+
+def _single_plugin(value: object, label: str, errors: list[str]) -> dict[str, object] | None:
+    if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
+        _add(errors, f"{label}: 'plugins' must contain exactly one object")
+        return None
+    return value[0]
+
+
+def _validate_codex_plugin(
+    root: Path, value: dict[str, object], canonical_version: str | None, errors: list[str]
+) -> None:
+    label = str(CODEX_PLUGIN_PATH)
+    allowed = set(PLUGIN_COMMON_VALUES) | {"version", "skills", "interface"}
+    _validate_fields(value, allowed, label, errors)
+    _validate_required_values(value, PLUGIN_COMMON_VALUES, label, errors)
+    _validate_manifest_version(value, canonical_version, label, errors)
+    _validate_required_values(value, {"skills": "./skills/"}, label, errors)
+    _validate_local_directory(
+        root, value.get("skills"), f"{label}: skills", (Path(PLUGIN_NAME) / "SKILL.md",), errors
+    )
+
+    interface = value.get("interface")
+    if not isinstance(interface, dict):
+        _add(errors, f"{label}: required 'interface' must be an object")
+    else:
+        _validate_fields(interface, set(CODEX_INTERFACE), f"{label}: interface", errors)
+        _validate_required_values(interface, CODEX_INTERFACE, f"{label}: interface", errors)
+
+
+def _validate_claude_plugin(
+    root: Path, value: dict[str, object], canonical_version: str | None, errors: list[str]
+) -> None:
+    label = str(CLAUDE_PLUGIN_PATH)
+    expected = {
+        **PLUGIN_COMMON_VALUES,
+        "$schema": CLAUDE_PLUGIN_SCHEMA,
+        "displayName": "Rust Safety",
+        "skills": "./skills/",
+    }
+    _validate_fields(value, set(expected) | {"version"}, label, errors)
+    _validate_required_values(value, expected, label, errors)
+    _validate_manifest_version(value, canonical_version, label, errors)
+    _validate_local_directory(
+        root, value.get("skills"), f"{label}: skills", (Path(PLUGIN_NAME) / "SKILL.md",), errors
+    )
+
+
+def _validate_codex_marketplace(root: Path, value: dict[str, object], errors: list[str]) -> None:
+    label = str(CODEX_MARKETPLACE_PATH)
+    _validate_fields(value, {"name", "interface", "plugins"}, label, errors)
+    _validate_required_values(value, {"name": PLUGIN_NAME}, label, errors)
+
+    interface = value.get("interface")
+    if not isinstance(interface, dict):
+        _add(errors, f"{label}: required 'interface' must be an object")
+    else:
+        _validate_fields(interface, {"displayName"}, f"{label}: interface", errors)
+        _validate_required_values(interface, {"displayName": "Rust Safety"}, f"{label}: interface", errors)
+
+    plugin = _single_plugin(value.get("plugins"), label, errors)
+    if plugin is None:
+        return
+    plugin_label = f"{label}: plugin"
+    _validate_fields(plugin, {"name", "source", "policy", "category"}, plugin_label, errors)
+    _validate_required_values(plugin, {"name": PLUGIN_NAME, "category": "Productivity"}, plugin_label, errors)
+
+    source = plugin.get("source")
+    if not isinstance(source, dict):
+        _add(errors, f"{plugin_label}: required 'source' must be an object")
+    else:
+        _validate_fields(source, {"source", "path"}, f"{plugin_label}: source", errors)
+        _validate_required_values(source, {"source": "local", "path": "./"}, f"{plugin_label}: source", errors)
+        _validate_local_directory(
+            root,
+            source.get("path"),
+            f"{plugin_label}: source.path",
+            (CODEX_PLUGIN_PATH, SKILL_PATH / "SKILL.md"),
+            errors,
+        )
+
+    policy = plugin.get("policy")
+    if not isinstance(policy, dict):
+        _add(errors, f"{plugin_label}: required 'policy' must be an object")
+    else:
+        expected_policy = {"installation": "AVAILABLE", "authentication": "ON_INSTALL"}
+        _validate_fields(policy, set(expected_policy), f"{plugin_label}: policy", errors)
+        _validate_required_values(policy, expected_policy, f"{plugin_label}: policy", errors)
+
+
+def _validate_claude_marketplace(root: Path, value: dict[str, object], errors: list[str]) -> None:
+    label = str(CLAUDE_MARKETPLACE_PATH)
+    expected = {
+        "$schema": CLAUDE_MARKETPLACE_SCHEMA,
+        "name": PLUGIN_NAME,
+        "description": PLUGIN_DESCRIPTION,
+        "owner": PLUGIN_AUTHOR,
+    }
+    _validate_fields(value, set(expected) | {"plugins"}, label, errors)
+    _validate_required_values(value, expected, label, errors)
+
+    plugin = _single_plugin(value.get("plugins"), label, errors)
+    if plugin is None:
+        return
+    plugin_label = f"{label}: plugin"
+    _validate_fields(plugin, {"name", "source"}, plugin_label, errors)
+    _validate_required_values(plugin, {"name": PLUGIN_NAME, "source": "./"}, plugin_label, errors)
+    _validate_local_directory(
+        root,
+        plugin.get("source"),
+        f"{plugin_label}: source",
+        (CLAUDE_PLUGIN_PATH, SKILL_PATH / "SKILL.md"),
+        errors,
+    )
+
+
+def validate_release_tag(
+    version: str | None, errors: list[str], environ: Mapping[str, str] | None = None
+) -> None:
+    if version is None:
+        return
+    environment = os.environ if environ is None else environ
+    expected = f"v{version}"
+    if environment.get("GITHUB_REF_TYPE") == "tag" and environment.get("GITHUB_REF_NAME") != expected:
+        actual = environment.get("GITHUB_REF_NAME", "")
+        _add(errors, f"GitHub release tag '{actual}' must match canonical version tag '{expected}'")
+    gitlab_tag = environment.get("CI_COMMIT_TAG")
+    if gitlab_tag and gitlab_tag != expected:
+        _add(errors, f"GitLab release tag '{gitlab_tag}' must match canonical version tag '{expected}'")
+
+
+def validate_plugin_metadata(
+    root: Path, skill_fields: dict[str, object], errors: list[str], environ: Mapping[str, str] | None = None
+) -> None:
+    root = root.resolve()
+    metadata = skill_fields.get("metadata")
+    version_value = metadata.get("version") if isinstance(metadata, dict) else None
+    canonical_version = version_value if isinstance(version_value, str) and SEMVER_RE.fullmatch(version_value) else None
+
+    documents = {
+        CODEX_PLUGIN_PATH: _read_json_object(root, CODEX_PLUGIN_PATH, errors),
+        CLAUDE_PLUGIN_PATH: _read_json_object(root, CLAUDE_PLUGIN_PATH, errors),
+        CODEX_MARKETPLACE_PATH: _read_json_object(root, CODEX_MARKETPLACE_PATH, errors),
+        CLAUDE_MARKETPLACE_PATH: _read_json_object(root, CLAUDE_MARKETPLACE_PATH, errors),
+    }
+    for path, value in documents.items():
+        if value is not None:
+            _validate_static_manifest(value, str(path), errors)
+
+    codex_plugin = documents[CODEX_PLUGIN_PATH]
+    if codex_plugin is not None:
+        _validate_codex_plugin(root, codex_plugin, canonical_version, errors)
+    claude_plugin = documents[CLAUDE_PLUGIN_PATH]
+    if claude_plugin is not None:
+        _validate_claude_plugin(root, claude_plugin, canonical_version, errors)
+    codex_marketplace = documents[CODEX_MARKETPLACE_PATH]
+    if codex_marketplace is not None:
+        _validate_codex_marketplace(root, codex_marketplace, errors)
+    claude_marketplace = documents[CLAUDE_MARKETPLACE_PATH]
+    if claude_marketplace is not None:
+        _validate_claude_marketplace(root, claude_marketplace, errors)
+    validate_release_tag(canonical_version, errors, environ)
+
+
 def validate_markdown_links(root: Path, errors: list[str]) -> None:
+    root = root.resolve()
     for source in sorted(root.rglob("*.md")):
         text = _read_utf8(root, source, errors)
         if text is None:
@@ -339,6 +644,7 @@ def validate_license(root: Path, errors: list[str]) -> None:
 
 
 def validate_evals(root: Path, errors: list[str]) -> None:
+    root = root.resolve()
     path = root / "evals" / "evals.json"
     if not path.is_file():
         _add(errors, "evals/evals.json: behavioral eval file is required by repository policy")
@@ -486,16 +792,19 @@ def validate_repository_policy_files(root: Path, errors: list[str]) -> None:
 def validate_repository(root: Path = DEFAULT_ROOT) -> list[str]:
     root = root.resolve()
     errors: list[str] = []
-    skill = root / "SKILL.md"
-    text = _read_utf8(root, skill, errors) if skill.is_file() else None
+    skill_root = (root / SKILL_PATH).resolve()
+    skill = skill_root / "SKILL.md"
+    fields: dict[str, object] = {}
+    text = _read_utf8(skill_root, skill, errors) if skill.is_file() else None
     if text is None:
         if not skill.is_file():
-            _add(errors, "SKILL.md: missing")
+            _add(errors, f"{SKILL_PATH}/SKILL.md: missing")
     else:
-        validate_frontmatter(root, text, errors)
+        fields = validate_frontmatter(skill_root, text, errors)
         validate_skill_size(text, errors)
-        validate_all_reference_paths(root, text, errors)
+        validate_all_reference_paths(skill_root, text, errors)
 
+    validate_plugin_metadata(root, fields, errors)
     validate_license(root, errors)
     validate_evals(root, errors)
     validate_markdown_links(root, errors)

@@ -1,0 +1,35 @@
+{
+  "name": "rust-safety",
+  "version": "0.1.0",
+  "description": "Rust development safety skill for secure coding, unsafe code, FFI, concurrency, panic handling, secret handling, and platform-specific Rust development.",
+  "author": {
+    "name": "Neuron-Grid",
+    "url": "https://github.com/Neuron-Grid"
+  },
+  "homepage": "https://github.com/Neuron-Grid/rust-safety",
+  "repository": "https://github.com/Neuron-Grid/rust-safety",
+  "license": "MIT",
+  "keywords": [
+    "rust",
+    "safety",
+    "security",
+    "ffi",
+    "concurrency"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Rust Safety",
+    "shortDescription": "Secure and correct Rust development guidance.",
+    "longDescription": "Rust development safety skill for secure coding, unsafe code, FFI, concurrency, panic handling, secret handling, and platform-specific Rust development.",
+    "developerName": "Neuron-Grid",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/Neuron-Grid/rust-safety",
+    "defaultPrompt": [
+      "Review this Rust code for safety, security, and correctness."
+    ]
+  }
+}

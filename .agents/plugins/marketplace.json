@@ -1,0 +1,20 @@
+{
+  "name": "rust-safety",
+  "interface": {
+    "displayName": "Rust Safety"
+  },
+  "plugins": [
+    {
+      "name": "rust-safety",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

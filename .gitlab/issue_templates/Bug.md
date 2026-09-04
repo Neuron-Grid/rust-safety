@@ -4,7 +4,7 @@ Describe the incorrect, broken, or ambiguous behavior.
 
 ## Affected files or rules
 
-List the relevant `SKILL.md` / `references/*.md` paths and headings.
+List the relevant `skills/rust-safety/SKILL.md` / `skills/rust-safety/references/*.md` paths and headings.
 
 ## Expected behavior
 

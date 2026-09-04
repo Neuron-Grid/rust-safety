@@ -22,7 +22,7 @@ When changing the Skill:
 2. Do not mandate a crate, runtime, error library, logging stack, or project layout unless the rule truly requires it.
 3. Prefer language- and standard-library-level guidance over version-sensitive third-party APIs.
 4. If third-party APIs are necessary, avoid unqualified claims such as "current" or "always" unless the statement is intentionally versioned.
-5. Keep `SKILL.md` focused on universally applicable behavior and move domain-specific detail into `references/`.
+5. Keep `skills/rust-safety/SKILL.md` focused on universally applicable behavior and move domain-specific detail into `skills/rust-safety/references/`.
 6. Treat `unsafe` as a proof obligation rather than a keyword blacklist.
 7. Preserve existing repository constraints such as MSRV, Edition, targets, features, `no_std`, public API, and CI policy.
 
@@ -37,14 +37,14 @@ For version-sensitive examples, include enough context to identify the relevant 
 Before opening a pull/merge request, run:
 
 ```bash
-python3 scripts/validate_skill.py
-python3 -m unittest discover -s tests -v
+python3 "scripts/validate_skill.py"
+python3 -m unittest discover -s "tests" -v
 ```
 
 If available, also run the official Agent Skills validator:
 
 ```bash
-skills-ref validate .
+skills-ref validate "skills/rust-safety"
 ```
 
 Review the changed guidance against the relevant Rust or crate documentation when the change depends on current behavior.
