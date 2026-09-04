@@ -1,0 +1,48 @@
+name: Safety or soundness correction
+description: Propose a correction to Rust safety, unsafe, FFI, or concurrency guidance.
+title: "[Safety] "
+labels:
+  - safety
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security-sensitive disclosure:** Do not use this public issue for undisclosed exploit details, secrets, private infrastructure information, or a soundness flaw whose premature disclosure would materially increase risk. Follow `SECURITY.md` and use the repository host's private reporting channel instead.
+  - type: checkboxes
+    id: disclosure
+    attributes:
+      label: Disclosure check
+      options:
+        - label: This report does not contain undisclosed exploit details, secrets, or other information that should be reported privately under SECURITY.md.
+          required: true
+  - type: input
+    id: location
+    attributes:
+      label: Rule or reference
+      placeholder: references/ffi.md — Ownership transfer
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current guidance
+      description: Summarize the current rule; avoid unnecessary long quotations.
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: Why it is unsafe, unsound, inaccurate, or too broad
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Technical basis
+      description: Prefer Rust reference material, official documentation, specifications, or a minimal reproduction that is safe to disclose publicly.
+    validations:
+      required: true
+  - type: textarea
+    id: correction
+    attributes:
+      label: Proposed correction

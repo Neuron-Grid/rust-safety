@@ -1,0 +1,38 @@
+name: Bug report
+description: Report an incorrect, broken, or ambiguous repository behavior.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the incorrect or ambiguous behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: location
+    attributes:
+      label: Affected files or rules
+      description: Include SKILL.md/reference paths and headings when known.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence or validation
+      description: Link official Rust/crate documentation or provide a minimal compile-valid example when relevant.
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Security disclosure
+      options:
+        - label: This report does not contain undisclosed exploit details or secrets. If it does, I will follow SECURITY.md instead.
+          required: true

@@ -1,0 +1,75 @@
+{
+  "skill_name": "rust-safety",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Review this Rust FFI helper and propose the smallest safe correction without changing the public ABI unless necessary: `pub unsafe extern \"C\" fn bytes(p: *const u8, len: usize) -> usize { let s = unsafe { std::slice::from_raw_parts(p, len) }; s.len() }`. Explain the safety contract for callers and any null/alignment/lifetime requirements.",
+      "expected_output": "Identifies the raw-slice preconditions, keeps the unsafe boundary narrow, requires a concrete Safety contract, and does not hide caller obligations behind an unjustified safe wrapper or unrelated ABI redesign.",
+      "assertions": [
+        "The response treats the unsafe operation as a proof obligation rather than banning FFI or unsafe Rust outright.",
+        "The response discusses the pointer/length validity contract, including non-null/alignment/lifetime or the exact Rust API preconditions relevant to the proposed correction.",
+        "The response preserves the public ABI unless a change is necessary for soundness and explains any necessary break."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "A library crate declares `rust-version = \"1.74\"`. Fix a safety-related input-validation bug, but do not change its MSRV, Edition, public API, or feature names. Avoid introducing APIs or dependency versions that require a newer compiler.",
+      "expected_output": "Preserves the declared MSRV and other repository constraints while implementing the safety fix with APIs and dependencies compatible with Rust 1.74.",
+      "assertions": [
+        "The response explicitly preserves the existing MSRV rather than upgrading Rust as part of the safety fix.",
+        "The response does not propose an unrelated Edition, public-API, or feature-name change.",
+        "Any new API or dependency recommendation is conditioned on compatibility with the declared MSRV."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "This crate is `#![no_std]` and its default configuration does not enable `alloc`. Add validation for a fixed-size binary header without changing the crate's default `no_std`/no-alloc support.",
+      "expected_output": "Uses core-compatible validation and does not introduce `std`, heap allocation, or dependencies/features that silently remove the existing no-alloc target support.",
+      "assertions": [
+        "The response preserves `#![no_std]` and the no-alloc default configuration.",
+        "The proposed validation can be implemented with `core` and fixed-size/borrowed data in the stated configuration.",
+        "The response does not treat adding `alloc` or `std` as an automatic safety improvement."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "In a Tokio service, a reviewer says every `std::sync::Mutex` is unsafe in async code and must be replaced by `tokio::sync::Mutex`. Review that claim. The existing lock protects a small in-memory counter and the guard is never held across `.await`.",
+      "expected_output": "Rejects the blanket replacement rule, distinguishes short synchronous data locks from locks that must cross await points, and focuses on deadlock/blocking behavior rather than labeling std::sync::Mutex memory-unsafe.",
+      "assertions": [
+        "The response does not claim that `std::sync::Mutex` is categorically unsafe in async Rust.",
+        "The response checks whether the guard crosses `.await` and whether the critical section can block for a meaningful duration.",
+        "The response recommends an async mutex only when the actual access pattern requires awaiting while the lock is held or equivalent async behavior."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "A network protocol reads an attacker-controlled 32-bit frame length and immediately calls `Vec::with_capacity(length as usize)` before reading the frame. Review and correct the design.",
+      "expected_output": "Treats the length as untrusted, validates protocol/resource bounds before allocation, handles integer conversion explicitly where needed, and rejects oversized frames without attempting attacker-controlled allocation.",
+      "assertions": [
+        "The response validates a maximum acceptable frame size before allocating.",
+        "The response treats numeric conversion and allocation-size arithmetic as a boundary where overflow/truncation/resource exhaustion must be considered.",
+        "The response does not rely on allocator failure or panic as the primary input-validation mechanism."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Fix a panic reachable through malformed input in a published Rust library. The obvious refactor changes a public error type and removes an existing enum variant. Make the narrowest safe fix and preserve compatibility where possible.",
+      "expected_output": "Removes the input-triggered panic while treating the public error type and enum shape as external contracts; avoids unrelated SemVer breakage and explains any unavoidable compatibility impact.",
+      "assertions": [
+        "The response fixes the malformed-input path without treating a public breaking change as automatically justified by the word safety.",
+        "The response recognizes the public error type/enum as part of the compatibility surface.",
+        "If a breaking change is proposed, the response explains why a compatible correction cannot satisfy the safety requirement."
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Make this Rust module \"safe\" by replacing every `+`, `-`, and `*` with `checked_*` and every `unwrap` with custom error propagation, including loop counters and test-only invariants. Review whether that policy is appropriate.",
+      "expected_output": "Rejects mechanical blanket transformations, applies checked arithmetic and recoverable errors where semantics require them, and keeps ordinary proven-range arithmetic/test invariants context-sensitive.",
+      "assertions": [
+        "The response does not equate all ordinary arithmetic with a safety defect.",
+        "The response recommends checked arithmetic for security/resource boundaries or where overflow is a meaningful failure mode, while allowing wrapping/saturating/plain arithmetic when those semantics are correct.",
+        "The response does not mechanically remove every test/internal-invariant `unwrap` without considering whether the failure represents a programmer bug."
+      ]
+    }
+  ]
+}
