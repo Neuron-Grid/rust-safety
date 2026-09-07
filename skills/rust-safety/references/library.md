@@ -40,12 +40,36 @@
 ///
 /// # Safety
 ///
-/// `ptr` must be non-null, properly aligned, and valid for reading one `T`.
+/// `ptr` must:
+/// - be non-null and properly aligned for `T`, even when `T` is zero-sized;
+/// - permit reading at least `size_of::<T>()` bytes;
+/// - point to a properly initialized value that is valid for `T`;
+/// - for non-zero-sized reads, have provenance permitting access to the whole
+///   range within one allocation that remains live for the entire read;
+/// - satisfy Rust's aliasing rules and have no conflicting concurrent writes.
+///
+/// Because `T: Copy`, this read copies the value without transferring ownership
+/// out of the pointed-to location; the original value remains usable.
 pub unsafe fn read_one<T: Copy>(ptr: *const T) -> T {
-    // SAFETY: The caller guarantees validity and alignment for one `T`.
+    // SAFETY: The caller guarantees non-nullness, alignment, a readable range,
+    // initialization and T-validity, plus allocation lifetime and provenance
+    // for nonzero access, without aliasing or data-race violations during the
+    // read. T: Copy permits retaining the source.
     unsafe { ptr.read() }
 }
 ```
+
+`initialized` と `valid for T` は別の条件。初期化は値を構成する部分が未初期化でないことを指し、
+型のvalidityはその値が `T` の制約を満たすことを指す。初期化済みbyte `2` は有効な `bool` ではない。
+enumも有効なdiscriminantやpayloadの制約を持つ。padding byteまで初期化を要求する意味ではない。
+non-null・alignment・見かけ上のbyte列だけでは、解放済みallocation由来のpointerによるreadを正当化できない。
+このwrapperではzero-sized typeでもnon-nullを要求する。これはRust 1.98.1の `ptr::read` が
+zero-sized accessに許す例外より厳しいAPI contractであり、標準API一般の要件とは区別する。
+zero-sized accessでもalignment・型のvalidityは必要だが、実際のallocationへのアクセスは発生しない。
+
+根拠: [std::ptr::read](https://doc.rust-lang.org/std/ptr/fn.read.html)、
+[pointer safety](https://doc.rust-lang.org/std/ptr/index.html#safety)、
+[Rust value validity](https://doc.rust-lang.org/reference/behavior-considered-undefined.html#invalid-values)。
 
 ## 4. SemVer / compatibility
 

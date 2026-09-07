@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -316,7 +317,7 @@ class EvalTests(unittest.TestCase):
             root = root_dir(tmp)
             errors: list[str] = []
             validator.validate_evals(root, errors)
-            self.assertTrue(any("behavioral eval file is required" in e for e in errors))
+            self.assertTrue(any("eval definition file is required" in e for e in errors))
 
     def test_invalid_eval_shape_and_fields_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -460,6 +461,132 @@ class PluginMetadataTests(unittest.TestCase):
             "CI_COMMIT_TAG": "v0.1.0",
         })
         self.assertEqual(errors, [])
+
+
+class RuntimeComponentTests(unittest.TestCase):
+    def test_repository_with_skill_hooks_fixture_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "rust-safety"
+            shutil.copytree(
+                MODULE_PATH.parents[1],
+                root,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", ".venv", "target"),
+            )
+            self.assertEqual(validator.validate_repository(root), [])
+            path = root / validator.SKILL_PATH / "hooks/hooks.json"
+            path.parent.mkdir()
+            path.write_text('{"hooks": {}}\n', encoding="utf-8")
+            self.assertEqual(
+                validator.validate_repository(root),
+                [
+                    "skills/rust-safety/hooks: forbidden runtime component location",
+                ],
+            )
+
+    def test_known_locations_fail_at_plugin_and_skill_roots(self) -> None:
+        locations = (
+            "hooks/hooks.json",
+            "hooks.json",
+            ".mcp.json",
+            ".app.json",
+            ".lsp.json",
+            "agents/reviewer.md",
+            "commands/run.md",
+            "bin/tool",
+            "servers/main.py",
+            "monitors/monitors.json",
+            "settings.json",
+        )
+        for base in (Path(), validator.SKILL_PATH):
+            for location in locations:
+                with self.subTest(base=base, location=location), tempfile.TemporaryDirectory() as tmp:
+                    root = root_dir(tmp)
+                    make_plugin_layout(root)
+                    path = root / base / location
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("{}\n", encoding="utf-8")
+                    errors: list[str] = []
+                    validator.validate_runtime_components(root, errors)
+                    self.assertTrue(any("forbidden runtime component location" in e for e in errors), errors)
+
+    def test_skill_scripts_executable_and_shebang_fail(self) -> None:
+        for relative, content, executable in (
+            ("scripts/helper.py", "print('x')\n", False),
+            ("assets/helper", "binary placeholder\n", True),
+            ("assets/helper.py", "#!/usr/bin/env python3\n", False),
+        ):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as tmp:
+                root = root_dir(tmp)
+                make_plugin_layout(root)
+                path = root / validator.SKILL_PATH / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+                if executable:
+                    path.chmod(0o755)
+                errors: list[str] = []
+                validator.validate_runtime_components(root, errors)
+                self.assertTrue(errors)
+
+    def test_documentation_and_non_executable_samples_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = root_dir(tmp)
+            make_plugin_layout(root)
+            for relative, content in (
+                ("references/hooks/hooks.json", "{}\n"),
+                ("references/server.py", "print('example')\n"),
+                ("references/scripts/sample.py", "print('example')\n"),
+                ("references/sample.rs", "#![no_std]\npub fn sample() {}\n"),
+                ("references/runtime.md", "```sh\n#!/bin/sh\n```\n"),
+            ):
+                path = root / validator.SKILL_PATH / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            errors: list[str] = []
+            validator.validate_runtime_components(root, errors)
+            self.assertEqual(errors, [])
+
+    def test_implicit_package_install_requires_manifest_and_lock(self) -> None:
+        for base in (Path(), validator.SKILL_PATH):
+            for lock in ("bun.lock", "bun.lockb", "npm-shrinkwrap.json", "package-lock.json"):
+                with self.subTest(base=base, lock=lock), tempfile.TemporaryDirectory() as tmp:
+                    root = root_dir(tmp)
+                    make_plugin_layout(root)
+                    (root / base / "package.json").write_text("{}\n", encoding="utf-8")
+                    errors: list[str] = []
+                    validator.validate_runtime_components(root, errors)
+                    self.assertEqual(errors, [])
+                    (root / base / lock).write_text("{}\n", encoding="utf-8")
+                    validator.validate_runtime_components(root, errors)
+                    self.assertTrue(any("implicit package dependency installation" in e for e in errors))
+
+    def test_skill_symlinks_and_additional_skills_fail(self) -> None:
+        for relative in ("skills/extra/SKILL.md", "skills/rust-safety/linked", "skills"):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as tmp:
+                root = root_dir(tmp)
+                if relative != "skills":
+                    make_plugin_layout(root)
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if relative.endswith("SKILL.md"):
+                    path.write_text(VALID_FRONTMATTER, encoding="utf-8")
+                else:
+                    path.symlink_to(root / "missing")
+                errors: list[str] = []
+                validator.validate_runtime_components(root, errors)
+                self.assertTrue(errors)
+
+    def test_direct_runtime_fields_fail_in_supported_manifests(self) -> None:
+        for manifest in (validator.CODEX_PLUGIN_PATH, validator.CLAUDE_PLUGIN_PATH):
+            for key in ("hooks", "mcpServers", "apps", "lspServers", "experimental", "settings", "channels"):
+                with self.subTest(manifest=manifest, key=key), tempfile.TemporaryDirectory() as tmp:
+                    root = root_dir(tmp)
+                    fields = make_plugin_layout(root)
+                    value = read_json(root, manifest)
+                    value[key] = "./references/custom.json"
+                    write_json(root, manifest, value)
+                    errors: list[str] = []
+                    validator.validate_plugin_metadata(root, fields, errors, {})
+                    self.assertTrue(any(f"forbidden executable field '{key}'" in e for e in errors))
 
 
 class PolicyTests(unittest.TestCase):

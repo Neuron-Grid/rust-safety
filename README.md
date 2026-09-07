@@ -159,7 +159,7 @@ GitHub repositoryをMarketplaceとして登録しても、OpenAIまたはAnthrop
 4. **security / soundness / reliability / maintainabilityを区別する** — 保守性上の好みをmemory-safety要件として扱わない。
 5. **対象環境に応じて検証する** — host test、cross target、Miri、sanitizer、fuzzing等を機械的に全適用しない。
 
-## Validation
+## Structural validation
 
 repository付属のvalidatorは外部Python packageを必要としない **repository-local preflight validator** です。Agent Skills frontmatterと、このrepository固有のPlugin・Marketplace配布整合性を検査します。
 
@@ -174,7 +174,9 @@ python3 -m unittest discover -s "tests" -v
 - Skill directory名と `name` の一致、命名規則、`description` / `compatibility` 長
 - SkillとPlugin manifestのSemVer一致
 - Codex / Claude Code manifestとMarketplace source pathの整合性
-- 実行hook、MCP、command、dependency、remote execution sourceが含まれないこと
+- サポート対象manifest内のruntime宣言・remote sourceと、既知の暗黙runtime配置の拒否
+- Plugin root / Skill rootのhooks、MCP・app・LSP設定、agents、commands、bin、servers、monitors、settings、およびpackage manifest＋lockfileによる暗黙の依存インストール
+- 配布対象 `skills/` 内のscripts配置・実行権限・shebang・symlink・追加Skillの拒否
 - repository方針としてのMIT-only license整合性
 - `SKILL.md` の推奨500行上限
 - `references/*.md` の存在と、`SKILL.md` 内reference pathの `references/...` 統一
@@ -182,6 +184,10 @@ python3 -m unittest discover -s "tests" -v
 - repository内Markdownの相対link切れ
 - text fileの末尾改行と `__MACOSX` / AppleDouble混入
 - tag pipelineで `v<SemVer>` とcanonical versionが一致すること
+
+validatorは現在サポートする4種類のmanifestと、既知の暗黙runtime component配置を静的に検査します。PASSは任意のrepository contentsに対するsecurity auditではなく、あらゆる実行可能コードの不在を証明しません。通常のreference・非実行sample codeはruntime扱いしません。検査対象path、開発用toolingとの境界、サポート対象仕様は [evals/README.md](evals/README.md#supported-static-distribution-boundary) に記載しています。
+
+これらはStructural evalです。eval定義のschemaがPASSしても、Agentの行動改善やRust patchのsoundnessを保証しません。
 
 Agent Skills公式reference validatorが利用可能な環境では、追加で次も実行できます。
 
@@ -193,7 +199,9 @@ skills-ref validate "skills/rust-safety"
 
 ## Behavioral evals
 
-構造検証とは別に、[evals/evals.json](evals/evals.json) にSkillの実際の振る舞いを確認する評価ケースを収録しています。FFI、MSRV、`no_std`、async mutex、非信頼length、SemVer、過剰な `checked_*` 強制を対象に、Skillあり/なしまたは旧版との比較評価を行うためのものです。実行方法は [evals/README.md](evals/README.md) を参照してください。
+[evals/evals.json](evals/evals.json) のcase 1は、実際のRust repositoryにAgentが提出したpatchを採点する [FFI fixture](evals/behavioral/ffi-slice/) です。問題文から採点のヒントを除き、compile・test・互換性・空buffer・unsafe lintの自動チェックと、lifetime・caller contract・サイズ条件・新たなunsoundnessのrubricを分離しています。case 2–7の既存シナリオは定性的な補助素材として維持し、測定済みpatch評価には数えません。
+
+実行手順と採点基準は [evals/README.md](evals/README.md#behavioral-eval) を参照してください。graderの校正はSkillの有効性評価ではありません。Agentによる改善実績や比較実験の結果はまだ主張しません。
 
 ## CI
 
@@ -202,11 +210,11 @@ skills-ref validate "skills/rust-safety"
 - GitHub Actions: `.github/workflows/validate.yml`
 - GitLab CI: `.gitlab-ci.yml`
 
-branch、pull/merge request、`v<SemVer>` tagでunit testとvalidatorを実行します。Skill自体はruntime dependencyを持たず、CI用validatorとunit testもPython標準ライブラリのみを使用します。
+branch、pull/merge request、`v<SemVer>` tagでunit testとvalidatorを実行します。Skill自体はruntime dependencyを持たず、validatorとPython testは標準ライブラリのみを使用します。Behavioral graderの実行にはRust/Cargo/Clippyが必要で、Cargoがない環境ではgrader実行の校正testをskipします。CIはAgentによるBehavioral taskを実行しません。
 
 ## 配布物の安全性
 
-Plugin manifestが読み込むruntime componentは、静的なSkill文書とmetadataだけです。repositoryに同梱するvalidator、tests、evalsはinstall時または実行時に呼び出されません。manifestには実行hook、MCP server、install/postinstall script、remote download、実行binary、runtime dependencyを宣言しません。
+サポート対象Plugin manifestは静的なSkill文書とmetadataを宣言します。既知の暗黙runtime配置もvalidatorで拒否します。開発用validator、tests、evalsをinstall時・Pluginロード時に呼び出す宣言はありません。PASSの保証は上記の静的検査範囲に限定され、Agentが文書の指示に従って実行するコードや任意のrepository contentsの安全性までは保証しません。
 
 ## Contributing
 

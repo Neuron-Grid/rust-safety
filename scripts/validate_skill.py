@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -58,6 +59,11 @@ SEMVER_RE = re.compile(
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
 FORBIDDEN_MANIFEST_FIELDS = {
+    "lspServers",
+    "monitors",
+    "experimental",
+    "settings",
+    "channels",
     "agent",
     "agents",
     "app",
@@ -89,6 +95,69 @@ CODE_MD_PATH_RE = re.compile(r"`([^`\n]+\.md)`")
 TEXT_NAMES = {".editorconfig", ".gitattributes", ".gitignore", "LICENSE"}
 TEXT_SUFFIXES = {".md", ".py", ".yml", ".yaml", ".json"}
 BLOCK_MARKERS = {">", ">-", ">+", "|", "|-", "|+"}
+# Reserved component locations, relative to a plugin or standalone Skill root.
+# See evals/README.md for the supported specification boundary and sources.
+RUNTIME_LOCATIONS = (
+    "hooks",
+    "hooks.json",
+    ".mcp.json",
+    ".app.json",
+    ".lsp.json",
+    "agents",
+    "commands",
+    "bin",
+    "servers",
+    "monitors",
+    "settings.json",
+)
+
+
+def validate_runtime_components(root: Path, errors: list[str]) -> None:
+    """Reject known runtime surfaces without classifying arbitrary source code."""
+    root = root.resolve()
+    skill_root = root / SKILL_PATH
+    for base in (root, skill_root):
+        locations = RUNTIME_LOCATIONS + (("scripts",) if base == skill_root else ())
+        for location in locations:
+            path = base / location
+            if path.exists() or path.is_symlink():
+                _add(errors, f"{path.relative_to(root)}: forbidden runtime component location")
+        # A package manifest plus a supported lockfile triggers dependency install.
+        if (base / "package.json").exists() and any(
+            (base / name).exists() for name in ("bun.lock", "bun.lockb", "npm-shrinkwrap.json", "package-lock.json")
+        ):
+            _add(errors, f"{base.relative_to(root)}: implicit package dependency installation")
+
+    # skills/ is manifest-loaded. Do not follow links or silently admit another
+    # Skill whose frontmatter is outside our supported single-Skill schema.
+    skills = root / "skills"
+    if skills.is_symlink():
+        _add(errors, "skills: symlinks are unsupported in the Skill distribution")
+        return
+
+    def walk_error(exc: OSError) -> None:
+        _add(errors, f"skills: cannot inspect distribution: {exc}")
+
+    for directory, dirs, files in os.walk(skills, followlinks=False, onerror=walk_error):
+        for name in sorted(dirs + files):
+            path = Path(directory) / name
+            rel = path.relative_to(root)
+            try:
+                mode = path.lstat().st_mode
+                if stat.S_ISLNK(mode):
+                    _add(errors, f"{rel}: symlinks are unsupported in the Skill distribution")
+                elif stat.S_ISREG(mode):
+                    if name == "SKILL.md" and rel != SKILL_PATH / "SKILL.md":
+                        _add(errors, f"{rel}: unsupported additional Skill")
+                    with path.open("rb") as stream:
+                        prefix = stream.read(3)
+                        shebang = prefix.startswith(b"#!") and prefix != b"#!["
+                    if mode & 0o111 or shebang:
+                        _add(errors, f"{rel}: executable file or shebang in Skill distribution")
+                elif not stat.S_ISDIR(mode):
+                    _add(errors, f"{rel}: unsupported special file in Skill distribution")
+            except OSError as exc:
+                _add(errors, f"{rel}: cannot inspect distribution: {exc}")
 
 
 class FrontmatterParseError(ValueError):
@@ -647,7 +716,7 @@ def validate_evals(root: Path, errors: list[str]) -> None:
     root = root.resolve()
     path = root / "evals" / "evals.json"
     if not path.is_file():
-        _add(errors, "evals/evals.json: behavioral eval file is required by repository policy")
+        _add(errors, "evals/evals.json: eval definition file is required by repository policy")
         return
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -805,6 +874,7 @@ def validate_repository(root: Path = DEFAULT_ROOT) -> list[str]:
         validate_all_reference_paths(skill_root, text, errors)
 
     validate_plugin_metadata(root, fields, errors)
+    validate_runtime_components(root, errors)
     validate_license(root, errors)
     validate_evals(root, errors)
     validate_markdown_links(root, errors)

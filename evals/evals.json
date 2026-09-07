@@ -3,12 +3,18 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Review this Rust FFI helper and propose the smallest safe correction without changing the public ABI unless necessary: `pub unsafe extern \"C\" fn bytes(p: *const u8, len: usize) -> usize { let s = unsafe { std::slice::from_raw_parts(p, len) }; s.len() }`. Explain the safety contract for callers and any null/alignment/lifetime requirements.",
-      "expected_output": "Identifies the raw-slice preconditions, keeps the unsafe boundary narrow, requires a concrete Safety contract, and does not hide caller obligations behind an unjustified safe wrapper or unrelated ABI redesign.",
+      "prompt": "Review and fix this API for production use without unnecessary API breakage. Submit a patch to this repository, including appropriate tests and API documentation.",
+      "expected_output": "A patch to the ffi-slice fixture, graded with behavioral/grade_patch.py and the patch rubric in evals/README.md. Passing the definition schema is not a behavioral result.",
+      "files": [
+        "evals/behavioral/ffi-slice/Cargo.toml",
+        "evals/behavioral/ffi-slice/src/lib.rs",
+        "evals/behavioral/ffi-slice/tests/public_api.rs",
+        "evals/behavioral/ffi-slice/task.md"
+      ],
       "assertions": [
-        "The response treats the unsafe operation as a proof obligation rather than banning FFI or unsafe Rust outright.",
-        "The response discusses the pointer/length validity contract, including non-null/alignment/lifetime or the exact Rust API preconditions relevant to the proposed correction.",
-        "The response preserves the public ABI unless a change is necessary for soundness and explains any necessary break."
+        "The patch compiles, passes candidate and trusted tests, preserves borrowing behavior, and accepts null plus zero length without constructing an invalid slice.",
+        "The patch's caller contract covers the entire returned lifetime, initialization, alignment, provenance, one live allocation, aliasing, isize::MAX and address-wrap conditions.",
+        "The patch minimizes unsafe, preserves compatible valid callers and crate constraints, and introduces no new unsoundness. Grade the patch rather than the accompanying prose."
       ]
     },
     {

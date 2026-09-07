@@ -160,7 +160,7 @@ Registering this GitHub repository as a Marketplace does not automatically publi
 4. **Separate security, soundness, reliability, and maintainability** — Do not present maintainability preferences as memory-safety requirements.
 5. **Validate for the target environment** — Do not mechanically apply host tests, cross-target builds, Miri, sanitizers, or fuzzing to every project.
 
-## Validation
+## Structural validation
 
 The dependency-free **repository-local preflight validator** checks Agent Skills frontmatter and this repository's Plugin and Marketplace distribution invariants.
 
@@ -175,7 +175,9 @@ It validates:
 - Skill directory/name consistency, naming rules, and `description` / `compatibility` lengths
 - SemVer consistency between the skill and plugin manifests
 - Codex and Claude Code manifests and Marketplace source paths
-- Absence of executable hooks, MCP servers, commands, dependencies, and remote execution sources
+- Rejection of runtime declarations and remote sources in supported manifests, and known implicit runtime locations
+- Hooks, MCP/app/LSP configuration, agents, commands, bin, servers, monitors and settings at the plugin/Skill roots, plus implicit dependency installation through a package manifest and lockfile
+- Rejection of scripts locations, executable modes, shebangs, symlinks and additional Skills within distributed `skills/`
 - The repository's MIT-only license policy
 - The recommended 500-line `SKILL.md` limit
 - Existing `references/*.md` files and canonical `references/...` paths in `SKILL.md`
@@ -183,6 +185,10 @@ It validates:
 - Relative Markdown links throughout the repository
 - Final newlines and common `__MACOSX` / AppleDouble archive metadata
 - Agreement between a `v<SemVer>` CI tag and the canonical version
+
+Validator checks the currently supported manifests and known implicit runtime component locations. A PASS does not constitute a security audit of arbitrary repository contents or prove the absence of all executable code. Ordinary references and non-executable source samples are not classified as runtime components. See [evals/README.md](evals/README.md#supported-static-distribution-boundary) for exact paths, the development-tooling boundary and supported specifications.
+
+These are Structural evals. Passing an eval definition's schema does not demonstrate improved agent behavior or the soundness of a Rust patch.
 
 If the official Agent Skills reference validator is available, also run:
 
@@ -194,7 +200,9 @@ Specification: <https://agentskills.io/specification>
 
 ## Behavioral evals
 
-Behavioral cases are defined in [evals/evals.json](evals/evals.json). They cover FFI contracts, MSRV and `no_std` preservation, async mutex overgeneralization, untrusted allocation sizes, public API compatibility, and blanket `checked_*` / `unwrap` rewrites. See [evals/README.md](evals/README.md) for the with-skill/baseline workflow.
+Case 1 in [evals/evals.json](evals/evals.json) is an [FFI fixture](evals/behavioral/ffi-slice/) that grades an agent's patch to a real Rust repository. Its task prompt omits scoring hints. Automatic compile, test, compatibility, empty-buffer and unsafe-lint checks are separate from the rubric for lifetimes, caller contracts, size conditions and newly introduced unsoundness. Existing cases 2–7 remain qualitative supporting scenarios and are not counted as measured patch outcomes.
+
+See [evals/README.md](evals/README.md#behavioral-eval) for execution and scoring. Grader calibration is not evidence of Skill effectiveness. No agent improvement or comparative experiment result is claimed yet.
 
 ## CI
 
@@ -203,11 +211,11 @@ The same validation runs in:
 - GitHub Actions: `.github/workflows/validate.yml`
 - GitLab CI: `.gitlab-ci.yml`
 
-Branches, pull/merge requests, and `v<SemVer>` tags run the unit tests and validator. The skill has no runtime dependencies, and the CI validator and unit tests use only the Python standard library.
+Branches, pull/merge requests, and `v<SemVer>` tags run the unit tests and validator. The skill has no runtime dependencies; the validator and Python tests use only the standard library. Executing the Behavioral grader requires Rust/Cargo/Clippy; grader execution calibration tests are skipped when Cargo is unavailable. CI does not run an agent on Behavioral tasks.
 
 ## Distribution security
 
-The only runtime components loaded by the plugin manifests are static skill documents and metadata. The repository's validators, tests, and evals are not invoked during installation or at runtime. The manifests declare no executable hooks, MCP servers, install/postinstall scripts, remote downloads, executable binaries, or runtime dependencies.
+The supported plugin manifests declare static skill documents and metadata. The validator also rejects known implicit runtime locations. No declaration invokes the development validator, tests or evals during installation or plugin loading. PASS is limited to the static checks above; it does not guarantee the safety of arbitrary repository contents or code an agent runs by following document instructions.
 
 ## Contributing
 
