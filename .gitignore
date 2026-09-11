@@ -5,3 +5,6 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+.ruff_cache/
+target/
+/evals/behavioral/ffi-slice/Cargo.lock

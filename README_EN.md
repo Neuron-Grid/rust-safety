@@ -159,6 +159,7 @@ Registering this GitHub repository as a Marketplace does not automatically publi
 3. **Validate untrusted input at the boundary** — Check sizes, offsets, encodings, numeric ranges, and pointer validity where data enters the trust boundary.
 4. **Separate security, soundness, reliability, and maintainability** — Do not present maintainability preferences as memory-safety requirements.
 5. **Validate for the target environment** — Do not mechanically apply host tests, cross-target builds, Miri, sanitizers, or fuzzing to every project.
+6. **Prevent resource exhaustion and measure before adding performance complexity** — Review input-scaled resource controls and unnecessary allocation/copy, and establish the need for complex optimization under release-like conditions. Preserve justified clone/collect and allow simple redundant-work removal without mandatory benchmarks; this is not a performance guarantee or a benchmark requirement for every change.
 
 ## Structural validation
 
@@ -203,6 +204,8 @@ Specification: <https://agentskills.io/specification>
 Case 1 in [evals/evals.json](evals/evals.json) is an [FFI fixture](evals/behavioral/ffi-slice/) that grades an agent's patch to a real Rust repository. Its task prompt omits scoring hints. Automatic compile, test, compatibility, empty-buffer and unsafe-lint checks are separate from the rubric for lifetimes, caller contracts, size conditions and newly introduced unsoundness. Existing cases 2–7 remain qualitative supporting scenarios and are not counted as measured patch outcomes.
 
 See [evals/README.md](evals/README.md#behavioral-eval) for execution and scoring. Grader calibration is not evidence of Skill effectiveness. No agent improvement or comparative experiment result is claimed yet.
+
+Cases 8–10 are qualitative reviews covering unnecessary copies versus justified ownership/materialization, measurement before complex optimization, and batch resource growth. The protocol compares baseline/candidate responses on cases 5, 8 and 9 and reserves case 10 as a hold-out; these are not executable Rust patch fixtures or performance measurements.
 
 ## CI
 

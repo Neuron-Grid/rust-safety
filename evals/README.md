@@ -63,8 +63,50 @@ repository task after loading the Skill. It tests whether the agent discovers an
 repairs problems; plausible review prose and Structural PASS earn no patch credit.
 Case 1 of [evals.json](evals.json) is the executable patch task below. Cases 2–7
 remain legacy qualitative scenarios for MSRV, no-alloc, async locks, allocation,
-compatibility and mechanical rewrites; they have no runnable repositories and
-must not be counted as measured patch outcomes or evidence of improvement.
+compatibility and mechanical rewrites. Cases 8–10 add qualitative resource
+reviews: unnecessary copies versus justified ownership/materialization,
+measurement before complex optimization, and non-server batch resource growth.
+Cases 2–10 have no runnable repositories and must not be counted as measured
+patch outcomes. Qualitative comparisons have the separate protocol below.
+
+### Qualitative resource comparison
+
+Use cases 5, 8 and 9 for baseline/candidate comparisons; reserve case 10 as a
+hold-out until the candidate wording is fixed. Freeze prompts and assertions
+before the baseline. For case 5, its first two assertions are critical; cases
+8–10 mark critical assertions explicitly. Score each assertion as 1 (fully met),
+0.5 (partially met) or 0 (not met), citing the proposed correction or a concrete
+counterexample. Success requires every critical assertion to earn 1; report
+the assertion percentage separately. Do not score keywords or self-reported
+compliance as evidence.
+
+1. Keep baseline and candidate Skill/reference snapshots and execution materials
+   in a disposable directory outside the distributed Skill. Record the commit,
+   Skill diff, exact prompts, model/version and execution conditions.
+2. For each case and round, use a fresh agent with no prior conversation, at the
+   same model/settings and tool access. Supply only that Skill snapshot, relevant
+   references and the case's `prompt`; never supply `expected_output`,
+   `assertions`, previous responses or grading feedback. For case 5, append the
+   same instruction in both variants to answer with a precise review/correction
+   strategy in prose without generating code; cases 8–10 already specify prose.
+3. Retain the full response and ask for ambiguities, discretionary assumptions,
+   and counts/reasons for reconsidered decisions. Record tool-use and duration
+   metadata when available; mark unavailable metrics as uncollected rather than
+   estimating them. Keep these self-reports separate from evaluator scoring.
+4. Compare baseline and candidate responses against the frozen assertions.
+   Revise only wording implicated by observed ambiguity and repeat with fresh
+   agents. Seek two consecutive rounds without new actionable ambiguity; if
+   execution cost ends the comparison or required convergence metrics are
+   unavailable, report that limit rather than claiming formal convergence.
+5. Evaluate the withheld case 10 on both snapshots with fresh agents. Report any
+   regression or critical failure, and whether the baseline already passed.
+   A hold-out used to revise the wording becomes a development case: freeze a
+   new unseen hold-out before claiming an independent final check.
+
+These are semantic assessments of review decisions, not executed Rust repairs,
+performance measurements or proof of general agent effectiveness. Do not count
+adding definitions, passing the validator, or calibrating the FFI grader as an
+agent outcome. No model runner, resource grader or benchmark harness is added.
 
 ### Fixture format and task delivery
 

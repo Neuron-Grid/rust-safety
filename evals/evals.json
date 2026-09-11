@@ -76,6 +76,42 @@
         "The response recommends checked arithmetic for security/resource boundaries or where overflow is a meaningful failure mode, while allowing wrapping/saturating/plain arithmetic when those semantics are correct.",
         "The response does not mechanically remove every test/internal-invariant `unwrap` without considering whether the failure represents a programmer bug."
       ]
+    },
+    {
+      "id": 8,
+      "prompt": "Review this Rust library's proposed resource cleanup and describe the narrowest correction in prose, without generating code. The published API returns an owned Report and must remain compatible. For each row in an immutable &[String], the current implementation deep-copies the entire row slice with to_vec(), reads only the current copied row's length, then drops that copy. Separately, it constructs an owned Vec<String> of selected labels with collect(); Report retains those labels after the input is dropped and two later report passes traverse them. Report also retains a configuration Arc using Arc::clone and clones a small fixed-size value. A reviewer proposes replacing every clone and collect with borrows or lazy iterators. Decide which changes to make, which to retain, and what verification is proportionate.",
+      "expected_output": "A semantic review removing the unnecessary repeated deep copy while retaining justified ownership and materialization. Assess the actual input/iteration-scaled cost without a blanket clone/collect ban, API lifetime changes, or mandatory benchmarks for the obvious deletion. This is a qualitative scenario, not a graded patch fixture.",
+      "assertions": [
+        "[critical] Removes the repeated whole-input deep copy and reads each original row's length without changing the computation or adding another proportional temporary.",
+        "[critical] Preserves Report's owned labels, their lifetime after the input is dropped, and the public API; does not impose borrowing or iterator lifetimes on callers.",
+        "Recognizes Arc::clone and the small value clone as potentially appropriate, rather than treating every clone as a deep copy or an automatic defect.",
+        "Recognizes owned collection and repeat traversal as legitimate reasons for materialization; does not categorically ban collect.",
+        "Does not require a benchmark before removing the obviously redundant copy, and proposes focused checks for output and ownership behavior."
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "Review a performance proposal for a portable Rust library and state your decision and next steps in prose, without generating code. A local Debug-build timing suggests that get_unchecked() is faster than the current safe slice access; there is no release-like measurement or profiling. Production uses a custom Cargo profile and representative inputs differ from the local test. The patch also proposes a custom allocator, a different Hasher, and manual buffering based only on intuition. In the same patch, a temporary String is immediately discarded without being read or having any other effect. No public API, architecture, supported target, or dependency-policy change is authorized. Which changes can proceed, what evidence is missing, and under what conditions could the more complex changes be accepted?",
+      "expected_output": "Separates an obvious redundant operation from complex performance changes, rejects Debug-only or speculative evidence, and requires representative release/production-like measurement before accepting complexity. Performance-motivated unsafe additionally needs the existing proof procedure, without banning justified unsafe generally. This is a qualitative scenario, not a graded patch fixture.",
+      "assertions": [
+        "[critical] Does not introduce or accept performance-motivated unchecked access on Debug-only evidence; first compares safe alternatives under representative release-like conditions.",
+        "Uses the actual custom production profile, target, workload and relevant CPU/memory or latency/throughput measurements rather than assuming an unmodified cargo --release run is sufficient.",
+        "[critical] Requires both measured necessity and the existing unsafe obligations (contract, proof, minimal boundary, API safety, mutation resistance and validation); does not treat benchmark success as soundness proof or categorically ban unsafe.",
+        "Applies evidence requirements to allocator, Hasher and buffering complexity as well as unsafe, while preserving safety, portability and repository constraints.",
+        "Allows removing the clearly unused temporary without making benchmarks mandatory for that simple deletion, with proportionate correctness verification."
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "Review this desktop scientific batch program and describe a correction strategy in prose, without generating code. It is not a network service. A user supplies dataset size, iteration count and requested worker count. The coordinator first materializes every dataset-item/iteration pair, starts the requested number of OS threads, and sends tasks through an unbounded queue; workers retain results until all work finishes. Valid projects include intentionally long runs and large datasets, and operators configure a per-job resource budget. Existing outputs, algorithm semantics and the repository's dependency/runtime choices must remain compatible. Identify the resource problems and explain how to correct them without invalidating valid long jobs.",
+      "expected_output": "A context-sensitive non-server resource review covering aggregate CPU/work and memory/thread/queue growth. Uses the operator's budget, bounded active work, incremental processing and backpressure as appropriate, with lifecycle and correctness preservation instead of arbitrary universal limits. Reserved as a hold-out for this comparison; this is a qualitative scenario, not a graded patch fixture.",
+      "assertions": [
+        "[critical] Identifies input/iteration-dependent work and algorithmic growth as well as materialization, queued tasks, retained results and thread growth; does not confine exhaustion rules to servers.",
+        "[critical] Uses the project's per-job budget and checked size/count arithmetic to control resource demand before costly work or allocation; does not invent an arbitrary universal dataset/iteration cap.",
+        "Bounds active workers and queued work with backpressure or equivalent scheduling, avoids eager materialization where unnecessary, and addresses retained-result memory within the output contract.",
+        "Preserves legitimate long-running jobs and output/algorithm/API/runtime/dependency constraints; does not claim all CPU time or all datasets must fit a single fixed limit.",
+        "Accounts for worker errors, queue closure, cancellation/shutdown and join/drain behavior without introducing deadlock or silent lost work."
+      ]
     }
   ]
 }

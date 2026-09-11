@@ -112,7 +112,7 @@ workspaceでは**変更対象crateごと**に判定する。複数条件に該�
 
 - 非信頼値で `slice[index]` を行わない。`get`、iterator、`chunks`、`windows` 等を使う。
 - 固定長配列の既知indexや、型・直前の検証で範囲が保証される場合は直接indexingを許容する。
-- 性能理由でunchecked accessが必要なら、benchmarkで必要性を確認し `references/unsafe-systems.md` の手続きを適用する。
+- 性能理由でunchecked accessが必要なら、3.16の条件でbenchmarkにより必要性を確認し `references/unsafe-systems.md` の手続きを適用する。
 
 ### 3.4 UTF-8と文字列
 
@@ -216,6 +216,27 @@ panicはmemory unsafetyではない。用途に応じて扱う。
 
 生成コード、large table、protocol definition等は長くても分割しない方が安全な場合がある。行数ではなく責務と変更境界で判断する。
 
+### 3.15 Resource exhaustionと不要なallocation / copy
+
+外部入力サイズや反復回数によってresource consumptionが制御なく増大しないか確認する。対象はallocation size、queue / channel size、task / thread数、concurrency、algorithmic complexity、それらに伴うCPU時間・memory使用量を含む。
+
+- 入力規模や反復回数に比例してresourceを消費する処理では、project/domainの要件とresource予算に応じて上限・bounded design・backpressure等を設ける。すべての処理に任意の固定上限を要求しない。
+- 不要なallocation・copyを増やさない。特に入力規模や反復回数に比例する `clone`、`collect`、一時 `String` / `Vec` 等のtemporary allocation / materializationの必要性を確認する。
+- `clone()` は必ずしも高コストではない。`Arc::clone`、小さい値のclone、ownership boundaryやAPI contractを維持するcloneには合理的な用途がある。
+- `collect()` によるmaterializationも、複数回走査、contiguous storage、owned collectionを要求するAPI boundary、iterator lifetimeの分離、readability / correctnessのために合理的な場合がある。
+- `clone` / `collect` を機械的に禁止・削除しない。借用化のためにborrow/lifetimeを不必要に複雑化したり、public APIを悪化させたりしない。
+
+server固有の制御は `references/server.md`、async/concurrencyの詳細は `references/async-concurrency.md`、embeddedのmemory/stack制約は `references/embedded.md` に従う。
+
+### 3.16 性能目的の複雑化は実測で判断する
+
+性能またはmemory usageを理由に保守性・移植性・safety proofを複雑化する変更は、**release相当の条件で実測して必要性を確認してから**行う。Debug buildの性能だけで判断せず、特殊なrelease profileやproduction configurationがある場合は、そのprojectの実運用に近い条件を優先する。
+
+- 対象例はunsafe / unchecked access、custom allocator、Hasher変更、manual buffering、lock-free / atomic implementation、複雑な同期、data layout変更、aggressive inlining、specialized SIMD、allocation strategy変更等。
+- 代表的な入力・workloadで既存実装やsafeな代替と比較し、projectで利用可能なbenchmark、profiling、CPU / wall-clock time、allocation count、peak / resident memory、throughput、latency等で必要性を確認する。計測結果はsafety・correctness・portabilityやrepository constraintsを緩める根拠にはしない。
+- 明らかに不要な単純処理の除去までbenchmark必須にしない。変更に応じたcorrectnessの検証は行う。
+- 性能目的のunsafeには、**実測による必要性確認と第5節のunsafe手続きの両方**を要求する。実測はsoundness proofの代替ではない。FFI、HAL、allocator、kernel、SIMD等で本質的に必要なunsafeの許容方針は変えず、操作名による一律禁止もしない。
+
 ---
 
 ## 4. lint方針
@@ -293,6 +314,9 @@ unsafe関連の変更では、可能ならMiri等の動的検証を追加する�
 - [ ] repositoryのEdition / MSRV / target / `std`・`alloc`・`no_std` / featureを保持したか
 - [ ] 非信頼入力を境界で検証したか
 - [ ] narrowing、overflow、allocation sizeの意味が明示されているか
+- [ ] 外部入力や反復回数によるCPU / memory / queue / task数等の増大を要件に応じて制御しているか
+- [ ] 入力規模に比例する不要なallocation / copyがなく、妥当なclone / collectは保持しているか
+- [ ] 性能目的で実装を複雑化する場合、release相当・実運用に近い条件で必要性を実測したか
 - [ ] recoverable errorを不要にpanicへ変換していないか
 - [ ] 新規unsafeが本当に必要か
 - [ ] 各unsafe操作のSafety contractとproofが追跡可能か
@@ -302,4 +326,3 @@ unsafe関連の変更では、可能ならMiri等の動的検証を追加する�
 - [ ] public API / ABI / serialization / CLI contractを意図せず壊していないか
 - [ ] 新規依存がMSRV・target・feature・license方針に適合するか
 - [ ] 変更範囲に適したtest/checkを実行したか
-

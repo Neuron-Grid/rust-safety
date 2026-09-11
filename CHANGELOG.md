@@ -6,6 +6,12 @@ The project follows Semantic Versioning for published releases where practical.
 
 ## [Unreleased]
 
+### Added
+
+- Common resource-exhaustion and unnecessary allocation/copy review rules, preserving justified ownership and materialization.
+- Release-like measurement before performance-motivated implementation complexity, in addition to existing proof obligations for unsafe changes.
+- Qualitative resource evaluation cases and an independent baseline/candidate comparison protocol with a non-server hold-out.
+
 ## [0.1.0] - 2026-09-05
 
 ### Added

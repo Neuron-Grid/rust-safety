@@ -158,6 +158,7 @@ GitHub repositoryをMarketplaceとして登録しても、OpenAIまたはAnthrop
 3. **非信頼入力を境界で検証する** — size、offset、encoding、numeric range、pointer validity等を入力境界で検査する。
 4. **security / soundness / reliability / maintainabilityを区別する** — 保守性上の好みをmemory-safety要件として扱わない。
 5. **対象環境に応じて検証する** — host test、cross target、Miri、sanitizer、fuzzing等を機械的に全適用しない。
+6. **resource exhaustionを防ぎ、性能目的の複雑化は実測で判断する** — 入力規模に応じたresource制御と不要なallocation/copyを確認し、複雑な最適化はrelease相当の条件で必要性を確認する。妥当なclone/collectや単純な冗長処理の除去を妨げず、性能保証や全変更へのbenchmark義務化はしない。
 
 ## Structural validation
 
@@ -202,6 +203,8 @@ skills-ref validate "skills/rust-safety"
 [evals/evals.json](evals/evals.json) のcase 1は、実際のRust repositoryにAgentが提出したpatchを採点する [FFI fixture](evals/behavioral/ffi-slice/) です。問題文から採点のヒントを除き、compile・test・互換性・空buffer・unsafe lintの自動チェックと、lifetime・caller contract・サイズ条件・新たなunsoundnessのrubricを分離しています。case 2–7の既存シナリオは定性的な補助素材として維持し、測定済みpatch評価には数えません。
 
 実行手順と採点基準は [evals/README.md](evals/README.md#behavioral-eval) を参照してください。graderの校正はSkillの有効性評価ではありません。Agentによる改善実績や比較実験の結果はまだ主張しません。
+
+case 8–10は、不要なcopyと必要な所有権・materializationの区別、複雑な最適化前の実測、batch処理のresource増大を扱う定性レビューです。case 5・8・9の変更前後比較とcase 10のhold-out評価の手順を定義していますが、実行可能なRust patch fixtureや性能測定ではありません。
 
 ## CI
 
